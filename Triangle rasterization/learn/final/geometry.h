@@ -32,30 +32,13 @@ template<> struct vec<3> {
     vec<3>(const Point& p) : x(p.x), y(p.y), z(0) {}
     double& operator[] (const int i) { assert(i >= 0 && i < n); return data[i]; }
     const double& operator[] (const int i) const { assert(i >= 0 && i < n); return data[i]; }
-    vec<3> operator- () const {return {-x, -y, -z};}
     vec<3> operator- (const vec<3>& v) const { return {x - v.x, y - v.y, z - v.z}; }
     vec<3> operator+ (const vec<3>& v) const { return {x + v.x, y + v.y, z + v.z}; }
-    double operator* (const vec<3>& v) const { return x * v.x + y * v.y + z * v.z; }
-    vec<3> operator* (double f) const { return {x * f, y * f, z * f}; }
+
     vec<3> cross(const vec<3>& v) const {
         return {y * v.z - z * v.y, z * v.x - x * v.z, x * v.y - y * v.x};
     }
-    double lenght() const {
-        return std::sqrt(x * x + y * y + z * z);
-    }
-    vec<3>& normalize() {
-        double len = lenght();
-        if (len > 0) {
-            x /= len; y /= len; z /= len;
-        }
-        return *this;
-    }
-    friend std::ostream& operator<<(std::ostream& out, const vec<3>& v) {
-        out << '(' << v.x << ", " << v.y << ", " << v.z << ')';
-        return out;
-    }
 };
-
 
 typedef vec<3> vec3;
 
