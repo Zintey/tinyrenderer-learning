@@ -2,6 +2,7 @@
 #include <cmath>
 #include <cassert>
 #include <iostream>
+#include <algorithm>
 
 struct Point {
     int x, y;
@@ -22,51 +23,170 @@ template<int n> struct vec {
     const double& operator[] (const int i) const { assert(i >= 0 && i < n); return data[i]; }
 };
 
-template<> struct vec<3> {
-    static constexpr int n = 3; 
+template<> struct vec<2> {
     union {
-        double data[3] = {};
-        struct {double x, y, z;};
+        double data[2];
+        struct { double x, y; };
+        struct { double u, v; };
     };
-    vec<3>(double xx = 0, double yy = 0, double zz = 0) : x(xx), y(yy), z(zz) {}
+    vec<2>() : x(0), y(0) {}
+    vec<2>(double xx, double yy) : x(xx), y(yy) {}
+    
+    double& operator[] (const int i) { assert(i >= 0 && i < 2); return data[i]; }
+    const double& operator[] (const int i) const { assert(i >= 0 && i < 2); return data[i]; }
+    
+    vec<2> operator- () const { return {-x, -y}; }
+    vec<2> operator+ (const vec<2>& v) const { return {x + v.x, y + v.y}; }
+    vec<2> operator- (const vec<2>& v) const { return {x - v.x, y - v.y}; }
+    vec<2> operator* (double f) const { return {x * f, y * f}; }
+    double operator* (const vec<2>& v) const { return x * v.x + y * v.y; }
+    
+    double length() const { return std::sqrt(x * x + y * y); }
+    vec<2>& normalize() { double len = length(); if (len > 0) { x /= len; y /= len; } return *this; }
+};
+
+template<> struct vec<3> {
+    union {
+        double data[3];
+        struct { double x, y, z; };
+    };
+    vec<3>() : x(0), y(0), z(0) {}
+    vec<3>(double xx, double yy, double zz) : x(xx), y(yy), z(zz) {}
     vec<3>(const Point& p) : x(p.x), y(p.y), z(0) {}
-    double& operator[] (const int i) { assert(i >= 0 && i < n); return data[i]; }
-    const double& operator[] (const int i) const { assert(i >= 0 && i < n); return data[i]; }
-    vec<3> operator- () const {return {-x, -y, -z};}
-    vec<3> operator- (const vec<3>& v) const { return {x - v.x, y - v.y, z - v.z}; }
+    
+    double& operator[] (const int i) { assert(i >= 0 && i < 3); return data[i]; }
+    const double& operator[] (const int i) const { assert(i >= 0 && i < 3); return data[i]; }
+    
+    vec<3> operator- () const { return {-x, -y, -z}; }
     vec<3> operator+ (const vec<3>& v) const { return {x + v.x, y + v.y, z + v.z}; }
-    double operator* (const vec<3>& v) const { return x * v.x + y * v.y + z * v.z; }
+    vec<3> operator- (const vec<3>& v) const { return {x - v.x, y - v.y, z - v.z}; }
     vec<3> operator* (double f) const { return {x * f, y * f, z * f}; }
-    vec<3> cross(const vec<3>& v) const {
-        return {y * v.z - z * v.y, z * v.x - x * v.z, x * v.y - y * v.x};
-    }
-    double lenght() const {
-        return std::sqrt(x * x + y * y + z * z);
-    }
-    vec<3>& normalize() {
-        double len = lenght();
-        if (len > 0) {
-            x /= len; y /= len; z /= len;
-        }
-        return *this;
-    }
+    double operator* (const vec<3>& v) const { return x * v.x + y * v.y + z * v.z; }
+    
+    vec<3> cross(const vec<3>& v) const { return {y * v.z - z * v.y, z * v.x - x * v.z, x * v.y - y * v.x}; }
+    double length() const { return std::sqrt(x * x + y * y + z * z); }
+    vec<3>& normalize() { double len = length(); if (len > 0) { x /= len; y /= len; z /= len; } return *this; }
+    
     friend std::ostream& operator<<(std::ostream& out, const vec<3>& v) {
         out << '(' << v.x << ", " << v.y << ", " << v.z << ')';
         return out;
     }
 };
 
+template<> struct vec<4> {
+    union {
+        double data[4];
+        struct { double x, y, z, w; };
+    };
+    vec<4>() : x(0), y(0), z(0), w(0) {}
+    vec<4>(double xx, double yy, double zz, double ww) : x(xx), y(yy), z(zz), w(ww) {}
+    
+    double& operator[] (const int i) { assert(i >= 0 && i < 4); return data[i]; }
+    const double& operator[] (const int i) const { assert(i >= 0 && i < 4); return data[i]; }
+    
+    vec<4> operator- () const { return {-x, -y, -z, -w}; }
+    vec<4> operator+ (const vec<4>& v) const { return {x + v.x, y + v.y, z + v.z, w + v.w}; }
+    vec<4> operator- (const vec<4>& v) const { return {x - v.x, y - v.y, z - v.z, w - v.w}; }
+    vec<4> operator* (double f) const { return {x * f, y * f, z * f, w * f}; }
+    double operator* (const vec<4>& v) const { return x * v.x + y * v.y + z * v.z + w * v.w; }
+    
+    double length() const { return std::sqrt(x * x + y * y + z * z + w * w); }
+    vec<4>& normalize() { double len = length(); if (len > 0) { x /= len; y /= len; z /= len; w /= len; } return *this; }
+};
 
+typedef vec<2> vec2;
 typedef vec<3> vec3;
+typedef vec<4> vec4;
 
+template<int R, int C> struct matrix {
+    vec<C> rows[R] = {};
+    
+    vec<C>& operator[] (const int i) { assert(i >= 0 && i < R); return rows[i]; }
+    const vec<C>& operator[] (const int i) const { assert(i >= 0 && i < R); return rows[i]; }
+    
+    vec<R> col(const int i) const {
+        assert(i >= 0 && i < C);
+        vec<R> ret;
+        for (int j = 0; j < R; j++) ret[j] = rows[j][i];
+        return ret;
+    }
+
+    void set_col(const int i, const vec<R>& v) {
+        assert(i >= 0 && i < C);
+        for (int j = 0; j < R; j++) rows[j][i] = v[j];
+    }
+
+    static matrix<R, C> identity() {
+        matrix<R, C> ret;
+        for (int i = 0; i < R; i++) 
+            for (int j = 0; j < C; j++) 
+                ret[i][j] = (i == j ? 1.0 : 0.0);
+        return ret;
+    }
+
+    matrix<R, C> operator*(double f) const {
+        matrix<R, C> ret;
+        for (int i = 0; i < R; i++) 
+            for (int j = 0; j < C; j++) 
+                ret[i][j] = rows[i][j] * f;
+        return ret;
+    }
+};
+
+template<int R, int C> vec<R> operator*(const matrix<R, C>& m, const vec<C>& v) {
+    vec<R> ret;
+    for (int i = 0; i < R; i++) ret[i] = m[i] * v;
+    return ret;
+}
+
+template<int R1, int C1, int C2> matrix<R1, C2> operator*(const matrix<R1, C1>& m1, const matrix<C1, C2>& m2) {
+    matrix<R1, C2> ret;
+    for (int i = 0; i < R1; i++) 
+        for (int j = 0; j < C2; j++) 
+            ret[i][j] = m1[i] * m2.col(j);
+    return ret;
+}
+
+template<int R, int C> matrix<C, R> transpose(const matrix<R, C>& m) {
+    matrix<C, R> ret;
+    for (int i = 0; i < C; i++) ret[i] = m.col(i);
+    return ret;
+}
+
+template<int n> matrix<n, n> invert(matrix<n, n> m) {
+    matrix<n, n> inv = matrix<n, n>::identity();
+    for (int i = 0; i < n; i++) {
+        double pivot = m[i][i];
+        if (std::abs(pivot) < 1e-9) {
+            for (int j = i + 1; j < n; j++) {
+                if (std::abs(m[j][i]) > std::abs(pivot)) {
+                    std::swap(m[i], m[j]);
+                    std::swap(inv[i], inv[j]);
+                    pivot = m[i][i];
+                    break;
+                }
+            }
+        }
+        assert(std::abs(pivot) > 1e-9 && "Matrix is singular");
+        for (int j = 0; j < n; j++) {
+            m[i][j] /= pivot;
+            inv[i][j] /= pivot;
+        }
+        for (int k = 0; k < n; k++) {
+            if (k != i) {
+                double factor = m[k][i];
+                for (int j = 0; j < n; j++) {
+                    m[k][j] -= m[i][j] * factor;
+                    inv[k][j] -= inv[i][j] * factor;
+                }
+            }
+        }
+    }
+    return inv;
+}
 
 struct Triangle {
-    Point a, b, c;
-
-    bool contains(const Point& p) const {
-        int w0 = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
-        int w1 = (c.x - b.x) * (p.y - b.y) - (c.y - b.y) * (p.x - b.x);
-        int w2 = (a.x - c.x) * (p.y - c.y) - (a.y - c.y) * (p.x - c.x);
-        return (w0 >= 0 && w1 >= 0 && w2 >= 0) || (w0 <= 0 && w1 <= 0 && w2 <= 0);
-    }
+    vec3 v[3];
+    Triangle (vec3 a, vec3 b, vec3 c) : v{a, b, c} {}
+    double min_z() const { return std::min({v[0].z, v[1].z, v[2].z}); }
 };
