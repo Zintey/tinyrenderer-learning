@@ -2,10 +2,10 @@
 #include "our_gl.h"
 
 
-mat<4, 4> View, Projection, Viewport;
+mat<4, 4, double> View, Projection, Viewport;
 std::vector<double> zbuffer;
 
-mat<4, 4> gl::get_pitch_matrix(double pitch)
+mat<4, 4, double> gl::get_pitch_matrix(double pitch)
 {
     return {
         {1,               0,                0, 0},
@@ -14,7 +14,7 @@ mat<4, 4> gl::get_pitch_matrix(double pitch)
         {0,               0,                0, 1}
     };
 }
-mat<4, 4> gl::get_yaw_matrix(double yaw)
+mat<4, 4, double> gl::get_yaw_matrix(double yaw)
 {
     return {
         { std::cos(yaw), 0, std::sin(yaw), 0},
@@ -23,7 +23,7 @@ mat<4, 4> gl::get_yaw_matrix(double yaw)
         {             0, 0,             0, 1}
     };
 }
-mat<4, 4> gl::get_roll_matrix(double roll)
+mat<4, 4, double> gl::get_roll_matrix(double roll)
 {
     return {
         {std::cos(roll), -std::sin(roll), 0, 0},
@@ -34,10 +34,10 @@ mat<4, 4> gl::get_roll_matrix(double roll)
 }
 
 // 得到Model矩阵，从模型空间到世界空间
-mat<4, 4> gl::get_model_matrix(Transform transform)
+mat<4, 4, double> gl::get_model_matrix(Transform transform)
 {
     mat<4, 4> P, R, S; // 平移 旋转 缩放矩阵
-    P = mat<4, 4>::identity(),R = mat<4, 4>::identity(),S = mat<4, 4>::identity();
+    P = mat<4, 4, double>::identity(),R = mat<4, 4, double>::identity(),S = mat<4, 4, double>::identity();
     P.set_col(3, embed4(transform.position));
     S[0][0] = transform.scale.x;
     S[1][1] = transform.scale.y;
@@ -67,7 +67,7 @@ void gl::lookat(const vec3f eye, const vec3f target, const vec3f up)
     */
     mat<4, 4> transform = mat<4, 4>::identity();
     mat<4, 4> rotation = mat<4, 4>::identity();
-    transform.set_col(3, embed4(-eye, 0.0));
+    transform.set_col(3, embed4(-eye, 1.0));
     rotation.set_col(0, embed4(x, 0.0));
     rotation.set_col(1, embed4(y, 0.0));
     rotation.set_col(2, embed4(z, 0.0)); // 先得到原坐标系旋转到摄像机坐标系的旋转矩阵，再求其逆矩阵
@@ -110,7 +110,7 @@ void gl::init_viewport(const int x, const int y, const int w, const int h) {
 }
 
 void gl::init_zbuffer(const int width, const int height) {
-    zbuffer = std::vector(width*height, -1000.);
+    zbuffer = std::vector<double>(width * height, std::numeric_limits<double>::max());
 }
 
 vec4f gl::embed4(const vec3f& v, double fill) {
@@ -128,35 +128,42 @@ double area(const vec<2,T>& a, const vec<2,T>& b, const vec<2,T>& c)
     return .5 * ((a.x * b.y - b.x * a.y) + (b.x * c.y - c.x * b.y) + (c.x * a.y - a.x * c.y));
 }
 
+constexpr double epsilon = -1e-5;
+
 void gl::rasterize(const vec4f& v1, const vec4f& v2, const vec4f& v3, const IShader &shader, TGAImage &framebuffer)
 {
     vec4f ndc[3] = {v1 / v1.w, v2 / v2.w, v3 / v3.w};
-    vec2i sreen[3] = {(Viewport * ndc[0]).xy(), (Viewport * ndc[1]).xy(), (Viewport * ndc[2]).xy()};
+    
+    vec2f sreen[3] = {(Viewport * ndc[0]).xy(), (Viewport * ndc[1]).xy(), (Viewport * ndc[2]).xy()};
 
     int width = framebuffer.width();
     int height = framebuffer.height();
-    int minX = std::max(0, (int)std::min({sreen[0].x, sreen[1].x, sreen[2].x}));
-    int minY = std::max(0, (int)std::min({sreen[0].y, sreen[1].y, sreen[2].y}));
-    int maxX = std::min(width - 1, (int)std::max({sreen[0].x, sreen[1].x, sreen[2].x}));
-    int maxY = std::min(height - 1, (int)std::max({sreen[0].y, sreen[1].y, sreen[2].y}));
+    
+    int minX = std::max(0, (int)std::floor(std::min({sreen[0].x, sreen[1].x, sreen[2].x})));
+    int minY = std::max(0, (int)std::floor(std::min({sreen[0].y, sreen[1].y, sreen[2].y})));
+    int maxX = std::min(width - 1, (int)std::ceil(std::max({sreen[0].x, sreen[1].x, sreen[2].x})));
+    int maxY = std::min(height - 1, (int)std::ceil(std::max({sreen[0].y, sreen[1].y, sreen[2].y})));
 
     double st = area(sreen[0], sreen[1], sreen[2]);
-    if (st <= 0) return; // 背面剔除
+    if (st < epsilon) return;
 
     for (int x = minX; x <= maxX; x++) 
     {
         for (int y = minY; y <= maxY; y++) 
         {
-            vec2i p{x, y};
+            vec2f p{(double)x + 0.5, (double)y + 0.5};
+            
             double a = area(sreen[1], sreen[2], p) / st;
             double b = area(sreen[2], sreen[0], p) / st;
             double c = area(sreen[0], sreen[1], p) / st;
-            if (a < 0 || b < 0 || c < 0) continue;
+            
+            if (a < epsilon || b < epsilon || c < epsilon) continue;
             
             double z = a * ndc[0].z + b * ndc[1].z + c * ndc[2].z;
-            if (zbuffer[x + y * width] < z) 
+            
+            if (z < zbuffer[x + y * width]) 
             {
-                auto [flag, color] = shader.fragment({0,0,0});
+                auto [flag, color] = shader.fragment({a, b, c});
                 if (!flag) continue;
                 zbuffer[x + y * width] = z;
                 framebuffer.set(x, y, color);
