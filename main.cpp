@@ -4,6 +4,7 @@
 #include <chrono>
 #include <iostream>
 #include <algorithm>
+#include <filesystem>
 
 #include "tgaimage.h"
 #include "model.h"
@@ -122,56 +123,98 @@ struct PhongShader : gl::IShader {
     }
 };
 
+TGAColor to_TGAColor(sol::table t) {
+    return TGAColor{
+            static_cast<std::uint8_t>(t["b"].get_or(0)),
+            static_cast<std::uint8_t>(t["g"].get_or(0)),
+            static_cast<std::uint8_t>(t["r"].get_or(0)),
+            static_cast<std::uint8_t>(t["a"].get_or(0)),
+        };
+}
+
 int main(int argc, char** argv) 
 {
-    sol::state lua_state;
-    // lua_state.open_libraries(sol::lib::base, sol::lib::math, sol::lib::string);
-    // lua_state.script_file("Lua/test.lua");
-    // lua_state.script("print('Hello from Lua!')");
-    if (argc < 4) {
-        std::cerr << "Usage: " << argv[0] << " <obj_file>" << std::endl;
-        return 1;
-    }
+    sol::state lua;
+    lua.open_libraries(sol::lib::base, sol::lib::math, sol::lib::string);
+    std::filesystem::path run_path = std::filesystem::current_path();
+    std::filesystem::path config_lua_path = run_path / "Lua/config.lua";
+    config_lua_path = std::filesystem::absolute(config_lua_path).lexically_normal();
 
-    constexpr int width  = 2000;
-    constexpr int height = 2000;
-    constexpr double aspect_radio = (double)width / height;
-    const vec3f    eye{0.5, 0, 2};
-    const vec3f target{ 0, 0, 0};
-    const vec3f     up{ 0, 1, 0};
+    lua["root_path"] = run_path.string();
 
-    gl::lookat(eye, target, up);
+    lua["renderer"] = lua.create_table();
+    vec3f    eye{0.5, 0, 2};
+    vec3f target{ 0, 0, 0};
+    vec3f     up{ 0, 1, 0};
+
+    lua["renderer"]["set_camera"] = [&eye, &target, &up](sol::table pos_tb, sol::table target_tb, sol::table up_tb){
+        eye = {pos_tb["x"], pos_tb["y"], pos_tb["z"]};
+        target = {target_tb["x"], target_tb["y"], target_tb["z"]};
+        up = {up_tb["x"], up_tb["y"], up_tb["z"]};
+    };
+
+    
     double near = 0.1, far = 20.0, fov_y = 60.0 * PI / 180.0; 
-    gl::init_perspective(near, far, fov_y, aspect_radio);
-    gl::init_viewport(width/16, height/16, width*7/8, height*7/8);
-    gl::init_zbuffer(width, height);
+    lua["renderer"]["set_view_frustum"] = [&near, &far, &fov_y](double n, double f, double fov){
+        near = n;
+        far = f;
+        fov_y = fov * PI / 180.0;
+    };
+    std::vector<Light> lights;
+    
+    lua["renderer"]["add_light"] = [&lights](sol::table light){
+        lights.emplace_back(to_TGAColor(light["color"]), light["intensity"].get_or(0), Transform({light["position"]["x"], light["position"]["y"], light["position"]["z"]}, {0, 0, 0}, {0, 0, 0}));
+    
+    };
 
-    TGAImage framebuffer(width, height, TGAImage::RGB);
-    for (int x = 0; x < width; x++) {
-        for (int y = 0; y < height; y++) {
-            framebuffer.set(x, y, {50, 50, 50, 255});
+    lua["renderer"]["clear_lights"] = [&lights](){
+        lights.clear();
+    };
+    // lights.emplace_back(red, 10, Transform({-3, 2., 2}, {0, 0, 0}, {0, 0, 0}));
+
+    int width  = 128;
+    int height = 128;
+    
+    TGAImage framebuffer;
+    std::vector<Model> models;
+    lua["renderer"]["start_render"] = [&](sol::table config){
+        width = config["width"].get_or(128);
+        height = config["height"].get_or(128);
+        std::string obj_path = config["model"]["obj_path"];
+        std::string texture_path = config["model"]["texture_path"];
+        std::string normaltex_path = config["model"]["normaltex_path"];
+        std::cout << "output width = " << width << " height = " << height << std::endl;
+        std::cout << "model: " << obj_path << std::endl;
+        std::cout << "texture: " << texture_path << std::endl;
+        std::cout << "normaltex: " << normaltex_path << std::endl;
+
+        const double aspect_radio = (double)width / height;
+        
+        gl::lookat(eye, target, up);
+        gl::init_perspective(near, far, fov_y, aspect_radio);
+        gl::init_viewport(width/16, height/16, width*7/8, height*7/8);
+        gl::init_zbuffer(width, height);
+        
+        framebuffer = TGAImage(width, height, TGAImage::RGB);
+        for (int x = 0; x < width; x++) {
+            for (int y = 0; y < height; y++) {
+                framebuffer.set(x, y, to_TGAColor(config["backcolor"]));
+            }
         }
-    }
-
-    auto start = std::chrono::steady_clock::now();
-
-    std::srand(std::time(nullptr));
-
-    for (int i = 1; i < argc; i += 3)
-    {    
+        
+        auto start = std::chrono::steady_clock::now();
+        
         TGAImage texture;
         TGAImage normal_tex;
-        texture.read_tga_file(argv[i + 1]);
-        normal_tex.read_tga_file(argv[i + 2]);
-
-        Model model(argv[i], texture, normal_tex);
-        model.set_position({0.0, 0.0, 0.0});
-        model.set_scale({1.0, 1.0, 1.0});
-        model.set_rotation({deg2rad(0.0), deg2rad(30.0), deg2rad(0.0)});
-
-        std::vector<Light> lights;
-        lights.emplace_back(white, 8, Transform({0, 2., 2}, {0, 0, 0}, {0, 0, 0}));
-        lights.emplace_back(red, 10, Transform({-3, 2., 2}, {0, 0, 0}, {0, 0, 0}));
+        texture.read_tga_file(texture_path);
+        normal_tex.read_tga_file(normaltex_path);
+        
+        models.emplace_back(obj_path, texture, normal_tex);
+        Model& model = models.back();
+        model.set_position({config["model"]["position"]["x"].get_or(0.0), config["model"]["position"]["y"].get_or(0.0), config["model"]["position"]["z"].get_or(0.0)});
+        model.set_scale({config["model"]["scale"]["x"].get_or(1.0), config["model"]["scale"]["y"].get_or(1.0), config["model"]["scale"]["z"].get_or(1.0)});
+        model.set_rotation({deg2rad(config["model"]["rotation"]["x"].get_or(0.0)), deg2rad(config["model"]["rotation"]["y"].get_or(0.0)), deg2rad(config["model"]["rotation"]["z"].get_or(0.0))});
+        
         PhongShader shader(model, eye, lights, 1.0, 0.4, 100);
         for (int i = 0; i < model.get_triangles_size(); i++) {
             auto [v1, v2, v3] = model.get_triangle_verts(i);
@@ -181,39 +224,68 @@ int main(int argc, char** argv)
             // shader.color = get_rand_color();
             gl::rasterize(v1, v2, v3, shader, framebuffer);
         }
-    }
-    TGAImage zbuffer_img(width, height, TGAImage::Format::GRAYSCALE);
-    double min_z = std::numeric_limits<double>::max();
-    double max_z = -std::numeric_limits<double>::max();
-    
-    for (int x = 0; x < width; x++) {
-        for (int y = 0; y < height; y++) {
-            double z = zbuffer[x + y * width];
-            if (z < std::numeric_limits<double>::max() - 1e-6) {      
-                min_z = std::min(min_z, z);
-                max_z = std::max(max_z, z);
+
+        auto end = std::chrono::steady_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+        std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(duration).count() << " ms" << std::endl;
+    };
+
+    lua["renderer"]["generate_shadow"] = [&](sol::table config){
+        auto start = std::chrono::steady_clock::now();
+        for (auto model : models)
+        {
+            for (int i = 0; i < model.get_triangles_size(); i++)
+            {
+                auto [v1, v2, v3] = model.get_triangle_verts(i);
+                // gl::
             }
         }
-    }
-    for (int x = 0; x < width; x++) {
-        for (int y = 0; y < height; y++) {
-            double z = zbuffer[x + y * width];  
-            unsigned char c = 0;
-            if (z < std::numeric_limits<double>::max() - 1e-6) {
-                c = (max_z == min_z) ? 255 
-                : static_cast<unsigned char>((z - min_z) / (max_z - min_z) * 255.0);
+
+        auto end = std::chrono::steady_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+        std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(duration).count() << " ms" << std::endl;
+    }; 
+
+    lua["renderer"]["save_zbuffer"] = [&](std::string path){
+        
+        TGAImage zbuffer_img(width, height, TGAImage::Format::GRAYSCALE);
+        double min_z = std::numeric_limits<double>::max();
+        double max_z = -std::numeric_limits<double>::max();
+        
+        for (int x = 0; x < width; x++) {
+            for (int y = 0; y < height; y++) {
+                double z = zbuffer[x + y * width];
+                if (z < std::numeric_limits<double>::max() - 1e-6) {      
+                    min_z = std::min(min_z, z);
+                    max_z = std::max(max_z, z);
+                }
             }
-            zbuffer_img.set(x, y, {c});
         }
-    }
-            
-    auto end = std::chrono::steady_clock::now();
-    framebuffer.write_tga_file("framebuffer.tga");
-    zbuffer_img.write_tga_file("z_buffer.tga");
-    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-    std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(duration).count() << " ms" << std::endl;
+        for (int x = 0; x < width; x++) {
+            for (int y = 0; y < height; y++) {
+                double z = zbuffer[x + y * width];  
+                unsigned char c = 0;
+                if (z < std::numeric_limits<double>::max() - 1e-6) {
+                    c = (max_z == min_z) ? 255 
+                    : static_cast<unsigned char>((z - min_z) / (max_z - min_z) * 255.0);
+                }
+                zbuffer_img.set(x, y, {c});
+            }
+        }
+        zbuffer_img.write_tga_file(path);
+        
+    };
+    lua["renderer"]["save_img"] = [&](std::string path){
+        framebuffer.write_tga_file(path);
+    };
     
-    system("start framebuffer.tga");
+    lua["renderer"]["open_img"] = [](const char* path) {
+        std::string cmd = "start ";
+        cmd += path;
+        system(cmd.c_str());
+    };
     // system("start z_buffer.tga");
+    
+    lua.script_file(config_lua_path.string());
     return 0;
 }

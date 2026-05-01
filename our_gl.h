@@ -24,4 +24,5 @@ vec3f proj3(const vec4f& v);
 
 void rasterize(const vec4f& v1, const vec4f& v2, const vec4f& v3, const IShader &shader, TGAImage &framebuffer);
 
+void shadowing(const vec4f& v1, const vec4f& v2, const vec4f& v3, TGAColor shadow_color, TGAImage &framebuffer);
 }
