@@ -9,6 +9,7 @@
 #include "model.h"
 #include "our_gl.h"
 #include "light.h"
+#include "sol.hpp"
 
 constexpr double PI = 3.1415926;
 
@@ -123,6 +124,10 @@ struct PhongShader : gl::IShader {
 
 int main(int argc, char** argv) 
 {
+    sol::state lua_state;
+    // lua_state.open_libraries(sol::lib::base, sol::lib::math, sol::lib::string);
+    // lua_state.script_file("Lua/test.lua");
+    // lua_state.script("print('Hello from Lua!')");
     if (argc < 4) {
         std::cerr << "Usage: " << argv[0] << " <obj_file>" << std::endl;
         return 1;
